@@ -1,127 +1,42 @@
+var GoogleSpreadsheet = require('google-spreadsheet');
+var async = require('async');
 
+// spreadsheet key is the long id in the sheets URL
+var doc = new GoogleSpreadsheet('1kS7juEJ9G4uxKSplOf5HnWsWC3f6F66moVzKMeTFqxI');
+var sheet;
 
-var fs = require('fs');
-var readline = require('readline');
-var google = require('googleapis');
-var googleAuth = require('google-auth-library');
-
-// If modifying these scopes, delete your previously saved credentials
-// at ~/.credentials/sheets.googleapis.com-nodejs-quickstart.json
-var SCOPES = ['https://www.googleapis.com/auth/spreadsheets.readonly'];
-var TOKEN_DIR = (process.env.HOME || process.env.HOMEPATH ||
-    process.env.USERPROFILE) + '/.credentials/';
-var TOKEN_PATH = TOKEN_DIR + 'sheets.googleapis.com-nodejs-quickstart.json';
-
-// Load client secrets from a local file.
-fs.readFile('client_secret.json', function processClientSecrets(err, content) {
-  if (err) {
-    console.log('Error loading client secret file: ' + err);
-    return;
-  }
-  // Authorize a client with the loaded credentials, then call the
-  // Google Sheets API.
-  authorize(JSON.parse(content), listMajors);
-});
-
-/**
- * Create an OAuth2 client with the given credentials, and then execute the
- * given callback function.
- *
- * @param {Object} credentials The authorization client credentials.
- * @param {function} callback The callback to call with the authorized client.
- */
-function authorize(credentials, callback) {
-  var clientSecret = credentials.web.client_secret;
-  var clientId = credentials.web.client_id;
-  var redirectUrl = credentials.web.redirect_uris[0];
-  var auth = new googleAuth();
-  var oauth2Client = new auth.OAuth2(clientId, clientSecret, redirectUrl);
-
-  // Check if we have previously stored a token.
-  fs.readFile(TOKEN_PATH, function(err, token) {
-    if (err) {
-      getNewToken(oauth2Client, callback);
-    } else {
-      oauth2Client.credentials = JSON.parse(token);
-      callback(oauth2Client);
-    }
-  });
-}
-
-/**
- * Get and store new token after prompting for user authorization, and then
- * execute the given callback with the authorized OAuth2 client.
- *
- * @param {google.auth.OAuth2} oauth2Client The OAuth2 client to get token for.
- * @param {getEventsCallback} callback The callback to call with the authorized
- *     client.
- */
-function getNewToken(oauth2Client, callback) {
-  var authUrl = oauth2Client.generateAuthUrl({
-    access_type: 'offline',
-    scope: SCOPES
-  });
-  console.log('Authorize this app by visiting this url: ', authUrl);
-  var rl = readline.createInterface({
-    input: process.stdin,
-    output: process.stdout
-  });
-  rl.question('Enter the code from that page here: ', function(code) {
-    rl.close();
-    oauth2Client.getToken(code, function(err, token) {
-      if (err) {
-        console.log('Error while trying to retrieve access token', err);
-        return;
-      }
-      oauth2Client.credentials = token;
-      storeToken(token);
-      callback(oauth2Client);
+async.series([
+  function setAuth(step) {
+    // see notes below for authentication instructions!
+    var creds = require('./client_secret_2.json');
+    doc.useServiceAccountAuth(creds, step);
+  },
+  function getInfoAndWorksheets(step) {
+    doc.getInfo(function(err, info) {
+      console.log('Loaded doc: '+info.title+' by '+info.author.email);
+      sheet = info.worksheets[0];
+      console.log('sheet 1: '+sheet.title+' '+sheet.rowCount+'x'+sheet.colCount);
+      step();
     });
-  });
-}
+  },
+  function workingWithCells(step) {
+    sheet.getCells({
+      'min-row': 2,
+      'max-row': 4,
+      'return-empty': true
+    }, function(err, cells) {
+      var cellLike = cells[1];
+      var lastLike = cells[2]; 
+      var cellDislike = cells[27];
+      var lastDislike = cells[28]; 
 
-/**
- * Store token to disk be used in later program executions.
- *
- * @param {Object} token The token to store to disk.
- */
-function storeToken(token) {
-  try {
-    fs.mkdirSync(TOKEN_DIR);
-  } catch (err) {
-    if (err.code != 'EEXIST') {
-      throw err;
-    }
+
+      cellLike.value = parseInt(cellLike.value) + 1; 
+      cellDislike.value = parseInt(cellDislike.value) + 1; 
+      lastLike.value = new Date(Date.now()).toString(); 
+      lastDislike.value = new Date(Date.now()).toString(); 
+
+      sheet.bulkUpdateCells(cells, step); //async
+    });
   }
-  fs.writeFile(TOKEN_PATH, JSON.stringify(token));
-  console.log('Token stored to ' + TOKEN_PATH);
-}
-
-/**
- * Print the names and majors of students in a sample spreadsheet:
- * https://docs.google.com/spreadsheets/d/1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms/edit
- */
-function listMajors(auth) {
-  var sheets = google.sheets('v4');
-  sheets.spreadsheets.values.get({
-    auth: auth,
-    spreadsheetId: '1kS7juEJ9G4uxKSplOf5HnWsWC3f6F66moVzKMeTFqxI',
-    range: 'feedback!A2:B',
-  }, function(err, response) {
-    if (err) {
-      console.log('The API returned an error: ' + err);
-      return;
-    }
-    var rows = response.values;
-    if (rows.length == 0) {
-      console.log('No data found.');
-    } else {
-      console.log('Metric, Value:');
-      for (var i = 0; i < rows.length; i++) {
-        var row = rows[i];
-        // Print columns A and E, which correspond to indices 0 and 4.
-        console.log('%s, %d', row[0], row[1]);
-      }
-    }
-  });
-}
+]);
